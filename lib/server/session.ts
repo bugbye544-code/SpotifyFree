@@ -1,0 +1,62 @@
+import { cookies } from "next/headers";
+import { SignJWT, jwtVerify } from "jose";
+
+export type SessionPayload = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  user: {
+    id: string;
+    displayName: string;
+    email?: string;
+    image?: string;
+    product?: string;
+  };
+};
+
+const SESSION_COOKIE = "luma_session";
+
+function getSecret() {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error("SESSION_SECRET is missing.");
+  }
+
+  return new TextEncoder().encode(secret);
+}
+
+export async function setSession(session: SessionPayload) {
+  const token = await new SignJWT(session)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("30d")
+    .sign(getSecret());
+
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30
+  });
+}
+
+export async function clearSession() {
+  const cookieStore = await cookies();
+  cookieStore.delete(SESSION_COOKIE);
+}
+
+export async function getSession() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
+
+  if (!token) return null;
+
+  try {
+    const verified = await jwtVerify<SessionPayload>(token, getSecret());
+    return verified.payload;
+  } catch {
+    return null;
+  }
+}
